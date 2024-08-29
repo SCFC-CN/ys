@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>原神抽卡预测</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+			margin-top: 300px;
+        }
+
+        .input-box,
+        .result-box {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #009688;
+        }
+
+        label {
+            display: block;
+            margin: 10px 0;
+            color: #009688;
+        }
+
+        input {
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: calc(100% - 16px);
+        }
+		
+		#doesBigPityCheckbox, #doesWeaponBigPityCheckbox {
+		    width: 16px
+		}
+
+        p {
+            margin: 10px 0;
+            color: #555;
+        }
+
+        button {
+            background-color: #009688;
+            color: #fff;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        h2 {
+            margin-top: 20px;
+            color: #009688;
+        }
+
+        select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            width: 100%;
+        }
+
+        .green-text {
+            color: green;
+        }
+
+        #simulationResult {
+            margin-top: 20px;
+        }
+		
+		@media only screen and (max-width: 600px) {
+		    .container {
+				flex-direction: column;
+			}
+			
+			.input-box{
+				margin-bottom: 20px;
+			}
+		}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="input-box">
+            <h1>原神抽卡预测</h1>
+            
+            <label for="primogems">原石数:</label>
+            <input type="number" id="primogems" value="0">
+
+            <label for="intertwinedFates">纠缠之缘数:</label>
+            <input type="number" id="intertwinedFates" value="0">
+
+            <label for="desiredCharacterCount">所需UP角色数量:</label>
+            <input type="number" id="desiredCharacterCount" value="1">
+
+            <label for="desiredWeaponCount">所需专武数量:</label>
+            <input type="number" id="desiredWeaponCount" value="1">
+            
+            <label for="pityCount">已垫抽数:</label>
+            <input type="number" id="pityCount" value="0">
+			
+            <label for="doesBigPityCheckbox"><input type="checkbox" id="doesBigPityCheckbox">角色为大保底</label>
+            <label for="doesWeaponBigPityCheckbox"><input type="checkbox" id="doesWeaponBigPityCheckbox">武器为大保底</label>
+
+            <p>默认先抽角色再抽专武。</p>
+			
+			<hr>
+			
+            <label for="simulationCount">模拟次数:</label>
+            <input type="number" id="simulationCount" value="10000000">
+			
+			<p>考虑到计算效率，默认模拟次数是一百万次，追求精确可加一个0。</p>
+
+            <button onclick="runSimulation()">开始模拟</button>
+        </div>
+
+        <div class="result-box">
+            <h2>频率估计概率：<span id="resultProbability"></span></h2>
+			<p>抽全后平均剩余抽数：<span id="leftFates"></span></p>
+            <label for="displayMode">显示模式:</label>
+            <select id="displayMode" onchange="displayResult()">
+                <option value="separate">区分常驻、非定轨武器数量</option>
+                <option value="combined">不区分常驻、非定轨武器数量(以抽到UP角色、专武为准)</option>
+            </select>
+            <div id="simulationResult"></div>
+        </div>
+    </div>
+
+    <script>
+        let sortedResultsSeparate = [];
+        let sortedResultsCombined = [];
+		let leftFatesTotal = 0;
+		let desiredCharacterCount = 0, desiredWeaponCount = 0;
+		
+		let simulationCount = 10000000;
+	
+        function runSimulation() {
+            const primogems = parseInt(document.getElementById("primogems").value);
+            const intertwinedFates = parseInt(document.getElementById("intertwinedFates").value);
+			const pityCount = parseInt(document.getElementById("pityCount").value);
+			const doesBigPity = document.getElementById("doesBigPityCheckbox").checked;
+			const doesWeaponBigPity = document.getElementById("doesWeaponBigPityCheckbox").checked;
+
+            desiredCharacterCount = parseInt(document.getElementById("desiredCharacterCount").value);
+            desiredWeaponCount = parseInt(document.getElementById("desiredWeaponCount").value);
+			simulationCount = parseInt(document.getElementById("simulationCount").value);
+
+            gachaSimulation(primogems, intertwinedFates, desiredCharacterCount, desiredWeaponCount, pityCount, doesBigPity, doesWeaponBigPity);
+			displayResult();
+        }
+
+        function gachaSimulation(primogems, intertwinedFates, desiredCharacterCount, desiredWeaponCount, oriPityCount, doesBigPity, doesWeaponBigPity) {
+			const constantFates = Math.floor(primogems / 160) + intertwinedFates;
+			const totalDesiredCount = desiredCharacterCount + desiredWeaponCount;
+			leftFatesTotal = 0;
+			const resultArray = Array.from({ length: desiredCharacterCount + desiredWeaponCount + 1 }, () => Array(desiredCharacterCount + desiredWeaponCount * 2 + 1).fill(0));
+
+			for (let i = 0; i < simulationCount; i++) {
+				let totalFates = constantFates;
+				
+				let upCount = 0;
+				let permanentCount = 0;
+				
+				let pityCount = oriPityCount;
+				let bigPityCount = doesBigPity ? 1 : 0;
+				let epitomizedPathCount = 0;
+
+				// 模拟抽角色
+				while(upCount < desiredCharacterCount && totalFates > 0){
+						totalFates -= 1;
+						pityCount++;
+						
+					const probability = pityCount > 73 ? 0.006 + 0.06 * (pityCount - 73) : 0.006;
+
+						if (Math.random() < probability) {
+							// 抽到五星
+							if(bigPityCount == 1 || Math.random() < 0.5){
+							  // 抽到UP角色
+							  upCount++;
+							  bigPityCount = 0;
+							}else{
+							// 抽到常驻角色
+								permanentCount++;
+								bigPityCount++;
+							}
+							pityCount = 0;
+						}
+				}
+				
+				bigPityCount = doesWeaponBigPity ? 1 : 0;
+				
+				while(upCount < totalDesiredCount && totalFates > 0){
+						totalFates -= 1;
+						pityCount++;
+						
+					const probability = pityCount > 63 ? 0.007 + 0.07 * (pityCount - 63) : 0.007;
+
+						if (Math.random() < probability) {
+							// 抽到五星
+							if(bigPityCount == 1 || Math.random() < 0.75){
+							  // 抽到UP武器
+							  if(epitomizedPathCount == 2 || Math.random() < 0.5){
+								  upCount++;
+								  epitomizedPathCount = 0;
+							  }else{
+								permanentCount++;
+								epitomizedPathCount++;
+							  }
+							  bigPityCount = 0;
+							}else{
+							// 抽到常驻武器
+								permanentCount++;
+								bigPityCount++;
+								epitomizedPathCount++;
+							}
+							pityCount = 0;
+						}
+				}
+				
+				resultArray[upCount][permanentCount]++;
+				if(totalFates > 0){
+					leftFatesTotal += totalFates;
+				}
+			}
+			
+			updateSortedResults(resultArray);
+		}
+		
+		function updateSortedResults(resultArray) {
+            sortedResultsSeparate = [];
+            sortedResultsCombined = [];
+
+            for (let i = 0; i < resultArray.length; i++) {
+				let combinedProbability = 0;
+                for (let j = 0; j < resultArray[i].length; j++) {
+                    if (resultArray[i][j]) {
+						sortedResultsSeparate.push({
+                                upCount: i,
+                                permanentCount: j,
+                                probability: (resultArray[i][j] / simulationCount * 100).toFixed(2) + "%"
+                            });
+							
+						combinedProbability += resultArray[i][j];
+                    }
+                }
+				if(combinedProbability){
+					const p = (combinedProbability / simulationCount * 100).toFixed(2) + "%";
+					
+					sortedResultsCombined.push({
+                        upCount: i,
+                        probability: p
+                    });
+					
+					if(i === desiredCharacterCount + desiredWeaponCount){
+						document.getElementById("resultProbability").textContent = p;
+						document.getElementById("leftFates").textContent = Math.floor(leftFatesTotal / combinedProbability);
+					}
+				}
+            }
+			
+			sortedResultsSeparate.sort((a, b) => {
+                return parseFloat(b.probability) - parseFloat(a.probability);
+            });
+
+            sortedResultsCombined.sort((a, b) => {
+                return parseFloat(b.probability) - parseFloat(a.probability);
+            });
+        }
+		
+		 function displayResult() {
+            const simulationResultDiv = document.getElementById("simulationResult");
+            simulationResultDiv.innerHTML = ""; 
+            let currentDisplayMode = document.getElementById("displayMode").value;
+			
+            if (currentDisplayMode === 'separate') {
+				for (let i = 0; i < sortedResultsSeparate.length; i++) {
+					const result = sortedResultsSeparate[i];
+					const rowDiv = document.createElement("div");
+					const upCharacters = result.upCount > desiredCharacterCount ? desiredCharacterCount : result.upCount;
+					const upWeapons = result.upCount > desiredCharacterCount ? result.upCount - desiredCharacterCount : 0;
+                    if(result.upCount === desiredCharacterCount + desiredWeaponCount){
+						rowDiv.classList.add('green-text');
+					}
+					rowDiv.innerText = `抽到${upCharacters}个UP角色，${upWeapons}个专武，${result.permanentCount}个常驻、非定轨角色、武器，概率为：${result.probability}`;
+					simulationResultDiv.appendChild(rowDiv);
+				}
+			}else{
+				for (let i = 0; i < sortedResultsCombined.length; i++) {
+					const result = sortedResultsCombined[i];
+					const rowDiv = document.createElement("div");
+					const upCharacters = result.upCount > desiredCharacterCount ? desiredCharacterCount : result.upCount;
+					const upWeapons = result.upCount > desiredCharacterCount ? result.upCount - desiredCharacterCount : 0;
+                    if(result.upCount === desiredCharacterCount + desiredWeaponCount){
+						rowDiv.classList.add('green-text');
+					}
+					rowDiv.innerText = `抽到${upCharacters}个UP角色，${upWeapons}个专武，概率为：${result.probability}`;
+					simulationResultDiv.appendChild(rowDiv);
+				}
+			}
+        }
+    </script>
+</body>
+</html>
